@@ -6,13 +6,13 @@
 
 Term: Fall 2018
 
-+ Team #
++ Team #8
 + Team members
-	+ team member 1
-	+ team member 2
-	+ team member 3
-	+ team member 4
-	+ team member 5
+	+ Bai, Ruoxi   rb3313
+	+ Loewenstein, Oded orl2108
+	+ Yan, Jiaming   jy2882
+	+ Zhong, Qingyang   qz2317
+	+ Zhu, Siyu   sz2716
 
 + Project summary: In this project, we created an OCR post-processing procedure to enhance Tesseract OCR output. 
 	
