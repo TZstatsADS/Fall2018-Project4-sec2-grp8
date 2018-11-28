@@ -226,14 +226,16 @@ for(i in 1:n_file){
   tesseract_vec <- tesseract_vec_all[[i]]
   tesseract_if_clean <- unlist(lapply(tesseract_vec,ifCleanToken)) # source code of ifCleanToken in in lib folder
   mat = cbind(tesseract_vec_all[[i]], gt_vec_all[[i]],tesseract_if_clean)
+  save(mat, file=paste0("../output/mats/mat_file",i,".RData"))
   df = data.frame(mat)
   df2 = data.frame(mat, stringsAsFactors = F)
   colnames(df) = c("Tesseract", "GroundTruth", "Detect")
+  colnames(df2) = c("Tesseract", "GroundTruth", "Detect")
   MatchDetect[[i]] = df # character vectors are converted to factors
   MatchDetectCharacter[[i]] = df2 # character vectors are not converted to factors
 }
-save(MatchDetect, file=paste0("../output/MatchDetect.RData"))
-save(MatchDetectCharacter, file=paste0("../output/MatchDetectCharacter.RData"))
+save(MatchDetect, file="../output/MatchDetect.RData")
+save(MatchDetectCharacter, file="../output/MatchDetectCharacter.RData")
 
 # dFunc = function(i){
 #   ## detect tesseract word error
@@ -273,7 +275,6 @@ The referenced papers are:
 The **len_check** variable shows whether a ground truth file and a Tesseract file have the same length. For the 13 pairs that do not have the same number of lines, we manually adjust the Tesseract files until they have the same length.
 
 ```{r}
-load("../output/MatchDetect.RData")
 
 
 
@@ -320,6 +321,7 @@ for (i in 1:100) {
 ```
 
 ```{r detection confusion matrix}
+load("../output/MatchDetectCharacter.RData")
 CompareMD = MatchDetectCharacter
 compareFunc = function(df){
   df$Actual = df$Tesseract == df$GroundTruth
