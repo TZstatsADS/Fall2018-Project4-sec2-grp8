@@ -130,7 +130,7 @@ for(i in 1:n_file){
   
   ## read the ground truth text, save it by lines & vectorize it
   current_ground_truth_txt = readLines(paste("../data/ground_truth/",current_file_name,".txt",sep=""), warn=FALSE)
-
+  
   ## read the tesseract text, save it by lines & vectorize it
   current_tesseract_txt <- readLines(paste("../data/tesseract/",current_file_name,".txt",sep=""), warn=FALSE)
   
@@ -157,6 +157,11 @@ All the process stated below are based on trimmed files, same length line pairs.
 
 ```{r}
 same_na = rep(NA, n_file)
+
+## count number of lines in total
+raw_lines = 0
+processed_lines = 0
+
 for(i in 1:n_file){
   ## i represents that this is the i-th file we are dealing with
   current_file_name <- sub(".txt","",file_name_vec[i])
@@ -169,6 +174,8 @@ for(i in 1:n_file){
 
   ## only keep the line pairs that have the same number of words
   n_line = length(current_ground_truth_txt)
+  raw_lines = n_line + raw_lines
+  
   for (j in 1:n_line){
     same_len_logi = length(str_split(current_ground_truth_txt[j], " ")[[1]]) == 
       length(str_split(current_tesseract_txt[j], " ")[[1]])
@@ -187,6 +194,8 @@ for(i in 1:n_file){
   tesseract_lines_all[[i]] = current_tesseract_txt[!na_logi2]
   tesseract_vec_all[[i]] = str_split(paste(tesseract_lines_all[[i]], collapse = " ")," ")[[1]]
   
+  processed_lines = length(gt_lines_all[[i]]) + processed_lines
+  
   ## re-check if each tesseract file has the same number of length with its corresponding ground truth
   len_check[i] = length(tesseract_lines_all[[i]]) == length(gt_lines_all[[i]])
 }
@@ -202,6 +211,8 @@ for(i in 1:n_file){
 }
 all(map11)
 
+## What is the proportion of lines deleted because of unequal number of words
+1 - processed_lines/raw_lines # = 0.1132
 ```
 
 ## Detection
@@ -210,15 +221,19 @@ Each element in the list in this following chunck is a dataframe for a pair of f
 
 ```{r}
 MatchDetect = list()
+MatchDetectCharacter = list()
 for(i in 1:n_file){
   tesseract_vec <- tesseract_vec_all[[i]]
   tesseract_if_clean <- unlist(lapply(tesseract_vec,ifCleanToken)) # source code of ifCleanToken in in lib folder
   mat = cbind(tesseract_vec_all[[i]], gt_vec_all[[i]],tesseract_if_clean)
   df = data.frame(mat)
+  df2 = data.frame(mat, stringsAsFactors = F)
   colnames(df) = c("Tesseract", "GroundTruth", "Detect")
-  MatchDetect[[i]] = df
+  MatchDetect[[i]] = df # character vectors are converted to factors
+  MatchDetectCharacter[[i]] = df2 # character vectors are not converted to factors
 }
 save(MatchDetect, file=paste0("../output/MatchDetect.RData"))
+save(MatchDetectCharacter, file=paste0("../output/MatchDetectCharacter.RData"))
 
 # dFunc = function(i){
 #   ## detect tesseract word error
@@ -258,13 +273,7 @@ The referenced papers are:
 The **len_check** variable shows whether a ground truth file and a Tesseract file have the same length. For the 13 pairs that do not have the same number of lines, we manually adjust the Tesseract files until they have the same length.
 
 ```{r}
-len_check
-
-
-## in each file, how many rows can be matched 1-1?
-## i.e., they have the same length
-lengthFunc = function(row1, row2)
-
+load("../output/MatchDetect.RData")
 
 
 
@@ -287,7 +296,7 @@ Both *precision* and *recall* are mathematically convenient measures because the
 
 Here, we only finished the **word level evaluation** criterions, you are required to complete the **letter-level** part.
 
-```{r}
+```{r detection word level}
 precisionDE<-rep(0,100)
 precisionBM<-rep(0,100)
 
@@ -308,6 +317,19 @@ for (i in 1:100) {
   
   recallBM[i]<-as.numeric(intersect_vec[i])/length(unlist(gt_vec_all[i]))
 }
+```
+
+```{r detection confusion matrix}
+CompareMD = MatchDetectCharacter
+compareFunc = function(df){
+  df$Actual = df$Tesseract == df$GroundTruth
+}
+
+
+
+
+
+
 ```
 
 
