@@ -65,6 +65,8 @@ if (!require("pacman")) {
   install_github("trinker/pacman")
 }
 
+library(caret)
+
 pacman::p_load(knitr, readr, stringr, tesseract, vecsets)
 source('../lib/ifCleanToken.R')
 file_name_vec <- list.files("../data/ground_truth") #100 files in total
@@ -325,13 +327,17 @@ load("../output/MatchDetectCharacter.RData")
 CompareMD = MatchDetectCharacter
 compareFunc = function(df){
   df$Actual = df$Tesseract == df$GroundTruth
+  return(df)
 }
 
+CompareDetect = lapply(CompareMD, compareFunc) # each element is a dataframe with a new column of actual detection
+## merge the detect and actual comparison of all 100 files into 1 matric
+CompareTF = cbind(unlist(sapply(CompareDetect, `[[`, "Detect")), unlist(sapply(CompareDetect, `[[`, "Actual"))) %>%
+  data.frame()
+colnames(CompareTF) = c("Detect", "Actual")
 
-
-
-
-
+## confusion matrix calculation
+confusionMatrix(data = CompareTF$Detect, reference = CompareTF$Actual)
 ```
 
 
