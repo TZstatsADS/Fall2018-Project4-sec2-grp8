@@ -58,8 +58,10 @@ if (!require("pacman")) {
   install_github("trinker/pacman")
 }
 if(!require("ebmc")) install.packages("ebmc")
+if(!require("dplyr")) install.packages("dplyr")
 library(ebmc)
 library(caret)
+library(dplyr)
 
 pacman::p_load(knitr, readr, stringr, tesseract, vecsets)
 source('../lib/ifCleanToken.R')
@@ -326,11 +328,11 @@ test_set = data_set[test_index, ]
 ## train regressor
 reg = adam2(factory~feature1+feature2+feature3+feature5+feature6, data = train_set, size = 10, alg = "c50")
 
-## regression on the test set and rank candidates
+## regression on the test set and rank candidathees
 test_prob = predict(reg, newdata = test_set)
 test_outcome = data.frame(prob = test_prob, 
                           test_set$error_term, test_set$gt_term, test_set$candidate,
-                          pair = rep(1:(nrow(test_outcome)/num_candidate), each = num_candidate)) %>%
+                          pair = rep(1:(nrow(test_set)/num_candidate), each = num_candidate)) %>%
   group_by(pair) %>%
   mutate(Rank = rank(prob, ties.method = "first")) %>%
   mutate(Rank = num_candidate + 1 -Rank)
