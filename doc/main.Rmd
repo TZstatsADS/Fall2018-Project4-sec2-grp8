@@ -295,14 +295,231 @@ The referenced papers are:
 - focus on section 5
 
 5. [topic models](https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=4377099)
+## build ground_truth file
+```{r}
+load("../output/MatchDetect.RData")
+## ground truth string file
+ground_truth <- NULL
+ground_truth <- paste(unlist(gt_lines_all), collapse = " ")
+ground_truth_vec <- str_split(ground_truth," ")[[1]] 
+```
 
-## Feature Extraction
-```{r feature extraction}
+## build ngram frequency vocabulary
+```{r}
+
+ground_truth <- iconv(ground_truth, "latin1", "ASCII", sub="") # pre_clean data
+ground_truth <- iconv(ground_truth,to="utf-8-mac")
+ground_truth_Corpus <- VCorpus(VectorSource(ground_truth)) # Make corpus
+ground_truth_Corpus <- tm_map(ground_truth_Corpus, stripWhitespace) # Remove unneccesary white spaces
+ground_truth_Corpus <- tm_map(ground_truth_Corpus, removePunctuation) # Remove punctuation
+ground_truth_Corpus <- tm_map(ground_truth_Corpus, removeNumbers) # Remove numbers
+ground_truth_Corpus <- tm_map(ground_truth_Corpus, tolower) # Convert to lowercase
+ground_truth_Corpus <- tm_map(ground_truth_Corpus, PlainTextDocument) # Plain text
+
+n_grams_vocabulary <- function(n, data) {
+  options(mc.cores=1)
+  # Builds n-gram tokenizer 
+  tk <- function(x) NGramTokenizer(x, Weka_control(min = n, max = n))
+  # Create matrix
+  ngrams_matrix <- TermDocumentMatrix(data, control=list(tokenize=tk))
+  # make matrix for easy view
+  ngrams_matrix <- as.matrix(rollup(ngrams_matrix, 2, na.rm=TRUE, FUN=sum))
+  ngrams_matrix <- data.frame(word=rownames(ngrams_matrix), freq=ngrams_matrix[,1])
+  # find 20 most frequent n-grams in the matrix
+  ngrams_matrix <- ngrams_matrix[order(-ngrams_matrix$freq), ]
+  ngrams_matrix$word <- factor(ngrams_matrix$word, as.character(ngrams_matrix$word))
+  return(ngrams_matrix)
+}
+
+#unigram <- n_grams_vocabulary(n=1, data=ground_truth_Corpus)
+#three_gram <- n_grams_vocabulary(n=3, data=ground_truth_Corpus)
+#save(unigram, file=paste0("../output/unigram.RData"))
+#save(three_gram, file=paste0("../output/three_gram.RData"))
+
+# plots first 20 three_gram
+ggplot(three_gram[1:20,], aes(x=word, y=freq)) + 
+  geom_bar(stat="Identity") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + xlab("three-grams") + 
+  ylab("Frequency")
+```
+
+## build features, create dataset
+```{r}
+Sys.time()
+correct_pattern <- function(single_pattern){
+  return(gsub(x = single_pattern, pattern = "\\(", replacement = "\\\\\\(", ignore.case = TRUE))
+}
 
 
+initial_dataset <- function(){
+  data_set <- data.frame("error_term" = character(0), 
+                           "gt_term" = character(0), 
+                           "candidate" = character(0),
+                           "feature1" = integer(0),
+                           "feature2" = integer(0),
+                            "feature3" = integer(0),
+                            "feature4" = integer(0),
+                           "feature5" = integer(0),
+                           "feature6" = integer(0),
+                           "file_index" = integer(0),
+                           "error_index" = integer(0))
+  return(data_set)
+  
+}
+
+
+
+## function to calcualte candidate's exact frequency
+freq5 <- function(test, n_gram){
+  ifelse(sum(n_gram$word == test) == 0, 0, n_gram[n_gram$word == test, ]$freq)
+}
+
+## function to calcualte candidate's relaxd frequency
+freq6 <- function(test, ngram){
+  test <- correct_pattern(test)
+  ifelse(sum(grep(test, ngram$word)) == 0, 0, sum(ngram$freq[grep(test, ngram$word)]))
+}
+
+## function to calculate score based on context frequency
+context_score <- function(frequency){
+  if(max(frequency) == 0){
+    return(frequency)
+  }else{
+    return(frequency/max(frequency))
+  } 
+}
+
+
+# parameter of feature1
+delta <- 5
+# first s elements we keep in the candidate_set
+s <- 3
+
+source("../lib/string_similarity.R") # used in calculating feature2
+
+#### initial the filepath for storing the output
+filepath = "../output/"
+## for each file  #length(tesseract_lines_all), c(1, 3, 4, 7, 8)
+for (i in 23) {
+  
+  data_set = initial_dataset()
+  start_time_ds <- Sys.time()
+  ## create lexicon for candidate search
+  # ground_truth lexicon
+  current_gt <- paste(gt_lines_all[[i]], collapse = " ")
+  current_gt_vec <- str_split(current_gt, " ")[[1]]
+  
+  additional_file <- sample((1:100)[-i],  1)
+  all_gt <- paste(c(gt_lines_all[[i]], 
+                    gt_lines_all[[additional_file[1]]]), collapse = " ")
+  all_gt_vec <- str_split(all_gt," ")[[1]] 
+  all_gt_vec <- unique(all_gt_vec)
+  
+  ## search error_term and corresponding ground truth for each file
+  error_position <- which(MatchDetect[[i]]$Detect == FALSE)
+  error_term <- as.character(MatchDetect[[i]]$Tesseract[error_position])
+  gt_term <- as.character(MatchDetect[[i]]$GroundTruth[error_position])
+
+  ## for each error  #length(error_term)
+  for (j in 1:length(error_term)){
+    w_e <- error_term[j] # word_error
+    ## create a candidate set for each error
+    leven_distance <- sapply(all_gt_vec, stringdist, b = w_e, method = "lv") # calculate Levenshtein distance between error term and each candidate in all_gt_vec
+    chosen_candidate <- order(leven_distance)[1:s] # chose first s candidates position
+    candidate_set <- all_gt_vec[chosen_candidate]
+    
+    ## feature scoring
+    
+    ### feature1: Levenshtein edit distance
+    # Levenshtein distance for the candidate
+    dist_candidate <- as.numeric(leven_distance[chosen_candidate])
+    score_led <- 1 - dist_candidate/(delta + 1)
+    
+    ### feature2: String similarity
+    score_ss <- string_similiarity(w_e, candidate_set)
+    
+    ### feature3: Language popularity
+    frequency3 <- unlist(lapply(candidate_set, freq5, unigram))
+    score_lp <- context_score(frequency3)
+    
+    ### feature4: lexicon existance
+    score_le <- as.numeric(candidate_set%in%current_gt_vec)
+    
+    ### feature5 and 6: exact-context popularity andrelaxed-context popularity
+    # neighboring terms
+    minus2 <-  as.character(MatchDetect[[i]]$Tesseract[abs(error_position[j] - 2)])
+    minus1 <- as.character(MatchDetect[[i]]$Tesseract[abs(error_position[j] - 1)])
+    positive1 <-  as.character(MatchDetect[[i]]$Tesseract[min((error_position[j] + 1), nrow(MatchDetect[[i]]))])
+    positive2 <-  as.character(MatchDetect[[i]]$Tesseract[min((error_position[j] + 2), nrow(MatchDetect[[i]]))])
+    frequency5 <- frequency6 <- NULL
+    ## feature5 and feature6
+    # for each candidate, calculate ngram frequency 
+    for (k in 1:length(candidate_set)) {
+      # tested candidate
+      candidate <- candidate_set[k]
+      # feature5: exact-context popularity
+      ngram1 <- paste(c(minus2, minus1, candidate), collapse = " ")
+      ngram2 <- paste(c(minus1, candidate, positive1), collapse = " ")
+      ngram3 <- paste(c(candidate, positive1, positive2), collapse = " ")
+      # candidate ngram freq (exact)
+      candidate_frequency <- sum(freq5(ngram1, three_gram), 
+                                 freq5(ngram2, three_gram),   
+                                 freq5(ngram3, three_gram))
+      frequency5 <- append(frequency5, candidate_frequency)
+      
+      # feature6: relaxed-context popularity
+      ngram1_1 <- paste(c(".", minus1, candidate), collapse = " ")
+      ngram1_2 <- paste(c(minus2, ".", candidate), collapse = " ")
+
+      ngram2_1 <- paste(c(".", candidate, positive1), collapse = " ")
+      ngram2_2 <- paste(c(minus1, candidate, "."), collapse = " ")
+      
+      ngram3_1 <- paste(c(candidate, ".", positive2), collapse = " ")
+      ngram3_2 <- paste(c(candidate, positive1, "."), collapse = " ")
+      # candidate ngram freq (relaxed)
+      candidate_frequency <- sum(freq6(ngram1_1, three_gram), 
+                                 freq6(ngram1_2, three_gram), 
+                                 freq6(ngram2_1, three_gram), 
+                                 freq6(ngram2_2, three_gram),
+                                 freq6(ngram3_1, three_gram),
+                                 freq6(ngram3_2, three_gram))
+      frequency6 <- append(frequency6, candidate_frequency)
+    }
+    
+    score_ecp <- context_score(frequency5)
+    score_rcp <- context_score(frequency6)
+
+    data_set <- add_row(data_set, "error_term" = rep(w_e, length(candidate_set)), 
+                           "gt_term" = rep(gt_term[j], length(candidate_set)), 
+                           "candidate" = candidate_set,
+                           "feature1" = score_led,
+                           "feature2" = score_ss,
+                          "feature4" = score_le,
+                           "feature3" = score_lp,
+                           "feature5" = score_ecp,
+                           "feature6" = score_rcp,
+                        "file_index" = rep(i, length(candidate_set)),
+                        "error_index" = rep(error_position[j], length(candidate_set)))
+
+  }
+# the loop for each file
+data_set$y <- as.numeric(data_set$gt_term == data_set$candidate)
+end_time_ds <- Sys.time()
+# time_ds <- end_time_ds - start_time_ds ## file1, 3, 4, 7, 8; first 20 errors for each file; first 5 candidates for each error
+print(paste("Running time for building dataset = ", (end_time_ds - start_time_ds)))
+filename = paste(paste("dataset", i, sep = "_"), "RData", sep = ".")
+save(data_set, file=paste(filepath, filename))
+}
+# 
+# data_set$y <- as.numeric(data_set$gt_term == data_set$candidate)
+# end_time_ds <- Sys.time()
+# time_ds <- end_time_ds - start_time_ds ## file1, 3, 4, 7, 8; first 20 errors for each file; first 5 candidates for each error
+# print(paste("Running time for building dataset = ", time_ds))
+# filepath = "../output/"
 
 
 ```
+
 
 
 ## Regressor
@@ -452,6 +669,16 @@ ggplot(NULL) +
   xlab("file number") +
   ylab("recall") +
   ggtitle("Recall Comparison")
+
+
+Detection_performance_table <- data.frame("Tesseract" = rep(NA,2),
+                                    "Detection" = rep(NA,2))
+row.names(Detection_performance_table) = c("word_wise_recall","word_wise_precision")
+Detection_performance_table["word_wise_recall","Tesseract"] <- mean(recallBM)
+Detection_performance_table["word_wise_precision","Tesseract"] <- mean(precisionBM)
+Detection_performance_table["word_wise_recall","Detection"] <- mean(recallDE)
+Detection_performance_table["word_wise_precision","Detection"] <- mean(precisionDE)
+kable(Detection_performance_table, caption="Comparison Between Tesseract & Detection")
 ```
 
 ### Confusion Matrix and Other KPI
