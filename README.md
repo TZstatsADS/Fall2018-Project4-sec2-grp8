@@ -23,7 +23,7 @@ And here is our steps:
 3. Error Correction, first calculate 6 features scoring for each candidate based on assigned [paper C2](doc/paper/C-2.pdf), then use AdaBoost.R2 model on top of decision trees with 0-1 loss function. Generate a prediction of top 3 best results as correction.
 ![image](figs/features.png)
 4.Evaluated OCR performance by calculating precision and recall for both word-level and character-level.
-
+![image](figs/evaluation.png)
 	
 **Contribution statement**: 
 + Bai, Ruoxi: Designed and organized the structure of the whole project; Data preprocessing(step1&2); Error Detection; Regression Model; Evaluation(Detection & Correction) and visualization; Debugging.
