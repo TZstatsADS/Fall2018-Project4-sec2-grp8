@@ -318,7 +318,6 @@ correct_pattern <- function(single_pattern){
 
 
 <<<<<<< HEAD
-=======
 5. [topic models](https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=4377099)
 ## build ground_truth file
 ```{r}
@@ -376,7 +375,8 @@ correct_pattern <- function(single_pattern){
 }
 
 
->>>>>>> parent of cf97ac4... Revert "Merge branch 'master' of https://github.com/TZstatsADS/Fall2018-Project4-sec2--sec2proj4_grp8"
+=======
+>>>>>>> d91af1b90e3970e9ac78422353bac35cd773bafb
 initial_dataset <- function(){
   data_set <- data.frame("error_term" = character(0), 
                            "gt_term" = character(0), 
@@ -393,14 +393,6 @@ initial_dataset <- function(){
   
 }
 <<<<<<< HEAD
-
-
-
-## function to calcualte candidate's exact frequency
-freq5 <- function(test, n_gram){
-  ifelse(sum(n_gram$word == test) == 0, 0, n_gram[n_gram$word == test, ]$freq)
-}
-=======
 
 
 
@@ -551,7 +543,15 @@ save(data_set, file=paste(filepath, filename))
 # time_ds <- end_time_ds - start_time_ds ## file1, 3, 4, 7, 8; first 20 errors for each file; first 5 candidates for each error
 # print(paste("Running time for building dataset = ", time_ds))
 # filepath = "../output/"
->>>>>>> parent of cf97ac4... Revert "Merge branch 'master' of https://github.com/TZstatsADS/Fall2018-Project4-sec2--sec2proj4_grp8"
+=======
+
+
+
+## function to calcualte candidate's exact frequency
+freq5 <- function(test, n_gram){
+  ifelse(sum(n_gram$word == test) == 0, 0, n_gram[n_gram$word == test, ]$freq)
+}
+>>>>>>> d91af1b90e3970e9ac78422353bac35cd773bafb
 
 ## function to calcualte candidate's relaxd frequency
 freq6 <- function(test, ngram){
@@ -693,11 +693,11 @@ save(data_set, file=paste(filepath, filename))
 ```
 
 <<<<<<< HEAD
-## Regression
-=======
 
 ## Regressor
->>>>>>> parent of cf97ac4... Revert "Merge branch 'master' of https://github.com/TZstatsADS/Fall2018-Project4-sec2--sec2proj4_grp8"
+=======
+## Regression
+>>>>>>> d91af1b90e3970e9ac78422353bac35cd773bafb
 
 ### Select optimal parameters
 
@@ -834,10 +834,10 @@ ggplot(NULL) +
   ggtitle("Recall Comparison")
 
 <<<<<<< HEAD
-## form a table for result
-=======
 
->>>>>>> parent of cf97ac4... Revert "Merge branch 'master' of https://github.com/TZstatsADS/Fall2018-Project4-sec2--sec2proj4_grp8"
+=======
+## form a table for result
+>>>>>>> d91af1b90e3970e9ac78422353bac35cd773bafb
 Detection_performance_table <- data.frame("Tesseract" = rep(NA,2),
                                     "Detection" = rep(NA,2))
 row.names(Detection_performance_table) = c("word_wise_recall","word_wise_precision")

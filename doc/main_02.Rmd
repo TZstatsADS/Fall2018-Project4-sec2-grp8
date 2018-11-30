@@ -1,0 +1,643 @@
+---
+title: "OCR Post-Processing"
+author: "Sec2 Group8"
+output:
+  html_document:
+    df_print: paged
+---
+
+GU4243/GR5243: Applied Data Science
+
+<style type="text/css">
+h1.title {
+  font-size: 24px;
+  color: Black;
+}
+h1 { /* Header 1 */
+  font-size: 24px;
+  color: Black;
+}
+h2 { /* Header 2 */
+  font-size: 20px;
+  color: Black;
+}
+h3 { /* Header 3 */
+  font-size: 16px;
+  color: Black;
+}
+h4 { /* Header 4 */
+  font-size: 14px;
+  color: Grey;
+}
+</style>
+# Introduction {-}
+
+Optical character recognition (OCR) is the process of converting scanned images of machine printed or
+handwritten text (numerals, letters, and symbols), into machine readable character streams, plain (e.g. text files) or formatted (e.g. HTML files). As shown in Figure 1, the data *workflow* in a typical OCR system consists of three major stages:
+
+* Pre-processing
+
+* OCR character recognition
+
+* Post-processing
+
+![](../figs/ocr_flowchart.png) 
+
+We have processed raw scanned images through the first two steps are relying on the [Tessearct OCR machine](https://en.wikipedia.org/wiki/Tesseract_(software)). R package tutorial can be found [here](https://www.r-bloggers.com/the-new-tesseract-package-high-quality-ocr-in-r/). 
+
+BUT this is not the FOCUS of this project!!!
+
+In this project, we are going to **focus on the third stage -- post-processing**, which includes two tasks: *error detection* and *error correction*.  
+
+# Step 1 - Load library and source code
+```{r, warning=FALSE, message = FALSE}
+if (!require("devtools")) install.packages("devtools")
+if (!require("pacman")) {
+  ## devtools is required
+  library(devtools)
+  install_github("trinker/pacman")
+}
+if(!require("ebmc")) install.packages("ebmc")
+if(!require("dplyr")) install.packages("dplyr")
+library(ebmc)
+library(caret)
+library(dplyr)
+
+pacman::p_load(knitr, readr, stringr, tesseract, vecsets)
+source('../lib/ifCleanToken.R')
+file_name_vec <- list.files("../data/ground_truth") #100 files in total
+
+# output: 
+#   html_document:
+#     toc: true
+#     toc_depth: 2
+#     toc_float:
+#       collapsed: false
+#       smooth_scroll: false
+#     number_sections: true
+#     code_folding: show
+```
+
+# Step 2 - read the files and conduct Tesseract OCR
+
+Although we have processed the Tesseract OCR and save the output txt files in the `data` folder, we include this chunk of code in order to make clear the whole pipeline to you.
+
+```{r, eval=FALSE}
+# for(i in c(1:length(file_name_vec))){
+#   current_file_name <- sub(".txt","",file_name_vec[i])
+#   ## png folder is not provided on github (the code is only on demonstration purpose)
+#   current_tesseract_txt <- tesseract::ocr(paste("../data/png/",current_file_name,".png",sep=""))
+#   
+#   ### clean the tessetact text (separate line by "\n", delete null string, transter to lower case)
+#   clean_tesseract_txt <- strsplit(current_tesseract_txt,"\n")[[1]]
+#   clean_tesseract_txt <- clean_tesseract_txt[clean_tesseract_txt!=""]
+#   
+#   ### save tesseract text file
+#   writeLines(clean_tesseract_txt, paste("../data/tesseract/",current_file_name,".txt",sep=""))
+# }
+```
+
+# Step 3 - Error detection
+
+Now, we are ready to conduct post-processing, based on the Tessearct OCR output. First of all, we need to detect errors, or *incorrectly processed words* -- check to see if an input string is a valid dictionary word or if its n-grams are all legal.
+
+The referenced papers are:
+
+1. [Rule-based techniques](http://webpages.ursinus.edu/akontostathis/KulpKontostathisFinal.pdf)
+
+- rules are in the section 2.2 
+
+2. [Letter n-gram](https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=1672564)
+
+- focus on positional binary digram in section 3-a.error detection
+
+3. Probabilistic techniques -- [SVM garbage detection](https://dl.acm.org/citation.cfm?doid=2034617.2034626)
+
+- features are in section 5 (you can choose not to implement ‘Levenshtein distance’ feature)
+
+
+In this statercode, we implement the first three rules in the first paper -- rule based techniques, as an example.
+
+## Data preparation
+
+```{r}
+# read ground truth text into 1 list
+n_file = length(file_name_vec)
+tesseract_vec_all = list() # each element is a vector of words for each text file
+tesseract_lines_all = list() # each element is a list of lines for each text file
+gt_vec_all = list() # each element is a vector of words for each text file
+gt_lines_all = list() # each element is a list of lines for each text file
+len_check = rep(NA, 100)
+len_check2 = rep(NA, 100)
+
+## check if each tesseract file has the same number of length with its corresponding ground truth
+
+for(i in 1:n_file){
+  ## i represents that this is the i-th file we are dealing with
+  current_file_name <- sub(".txt","",file_name_vec[i])
+  
+  ## read the ground truth text, save it by lines & vectorize it
+  current_ground_truth_txt = readLines(paste("../data/ground_truth/",current_file_name,".txt",sep=""), warn=FALSE)
+  
+  ## read the tesseract text, save it by lines & vectorize it
+  current_tesseract_txt <- readLines(paste("../data/tesseract/",current_file_name,".txt",sep=""), warn=FALSE)
+  
+  ## check if each tesseract file has the same number of length with its corresponding ground truth
+  len_check[i] = length(current_ground_truth_txt) == length(current_tesseract_txt)
+  ## check if all ground truth are not shorter than its Tesseract
+  len_check2[i] = length(current_ground_truth_txt) >= length(current_tesseract_txt)
+}
+
+# there exist pairs that do not have same number of lines:
+which(!len_check) 
+# all ground truth files have at least same number of lines compared with corresponding Tesseract files:
+which(!len_check2) 
+n_file-sum(len_check)
+```
+
+The above chunck shows that 13 pairs of Tesseract and ground truth files do not have the same number of lines, and for such pairs, the ground truth files always have more lines than the Tesseract files.
+
+Therefore, we trimmed the ground truth files manually until they have the same length with the corresponding Tesseract files, and saved them in a new folder called "ground_truth_trimmed". 
+
+To simplify the word alignment process, we only work on the line pairs that have same number of words. As calculated below, only 11% of lines are discarded this way, our method can still work for the major cases.
+
+All the process stated below are based on trimmed files, same length line pairs.
+
+```{r}
+same_na = rep(NA, n_file)
+
+## count number of lines in total
+raw_lines = 0
+processed_lines = 0
+word_num_gt = rep(NA, n_file)
+word_num_tes = rep(NA, n_file)
+
+for(i in 1:n_file){
+  ## i represents that this is the i-th file we are dealing with
+  current_file_name <- sub(".txt","",file_name_vec[i])
+  
+  ## read the ground truth text
+  current_ground_truth_txt = readLines(paste("../data/ground_truth_trimmed/",current_file_name,".txt",sep=""), warn=FALSE)
+  
+  ## read the tesseract text
+  current_tesseract_txt <- readLines(paste("../data/tesseract/",current_file_name,".txt",sep=""), warn=FALSE)
+
+  ## for evaluation purpose
+  ## count the total number of words in each ground truth and Tesseract file
+  word_num_gt[i] = length(str_split(paste(current_ground_truth_txt, collapse = " ")," ")[[1]])
+  word_num_tes[i] = length(str_split(paste(current_tesseract_txt, collapse = " ")," ")[[1]])
+
+  ## only keep the line pairs that have the same number of words
+  n_line = length(current_ground_truth_txt)
+  raw_lines = n_line + raw_lines
+  
+  for (j in 1:n_line){
+    same_len_logi = length(str_split(current_ground_truth_txt[j], " ")[[1]]) == 
+      length(str_split(current_tesseract_txt[j], " ")[[1]])
+    if(!same_len_logi){
+      current_ground_truth_txt[j] = NA
+      current_tesseract_txt[j] = NA
+    }
+  }
+  na_logi1 = is.na(current_ground_truth_txt)
+  na_logi2 = is.na(current_tesseract_txt)
+  same_na[i] = all(na_logi1 == na_logi2) # check if all the lines are assigned accordingly
+  
+  ## save and vectorized cleaned text
+  gt_lines_all[[i]] = current_ground_truth_txt[!na_logi1]
+  gt_vec_all[[i]] <- str_split(paste(gt_lines_all[[i]], collapse = " ")," ")[[1]]
+  tesseract_lines_all[[i]] = current_tesseract_txt[!na_logi2]
+  tesseract_vec_all[[i]] = str_split(paste(tesseract_lines_all[[i]], collapse = " ")," ")[[1]]
+  
+  processed_lines = length(gt_lines_all[[i]]) + processed_lines
+  
+  ## re-check if each tesseract file has the same number of length with its corresponding ground truth
+  len_check[i] = length(tesseract_lines_all[[i]]) == length(gt_lines_all[[i]])
+}
+## recheck if lines are removed correctly
+all(same_na)
+## re-check if each tesseract file has the same number of length with its corresponding ground truth
+all(len_check)
+
+## recheck if all the words in a pair of files can be mapped 1 to 1 now
+map11 = rep(NA,n_file)
+for(i in 1:n_file){
+  map11[i] = length(tesseract_vec_all[[i]]) == length(gt_vec_all[[i]])
+}
+all(map11)
+
+## What is the proportion of lines deleted because of unequal number of words
+1 - processed_lines/raw_lines # = 0.1132
+```
+
+## Detection
+
+Each element in the list in this following chunck is a dataframe for a pair of files. Each row in a dataframe contains the Tesseract word, its ground truth word and the detect output.
+
+The CPU time charged for the execution: 1909.355
+The CPU time charged for the execution of user instructions: 484.844
+```{r}
+MatchDetect = list()
+MatchDetectCharacter = list()
+user_time1 = proc.time()[1]
+system_time1 = proc.time()[2]
+for(i in 1:n_file){
+  tesseract_vec <- tesseract_vec_all[[i]]
+  tesseract_if_clean <- unlist(lapply(tesseract_vec,ifCleanToken)) # source code of ifCleanToken in in lib folder
+  mat = cbind(tesseract_vec_all[[i]], gt_vec_all[[i]],tesseract_if_clean)
+  save(mat, file=paste0("../output/mats/mat_file",i,".RData"))
+  df = data.frame(mat)
+  df2 = data.frame(mat, stringsAsFactors = F)
+  colnames(df) = c("Tesseract", "GroundTruth", "Detect")
+  colnames(df2) = c("Tesseract", "GroundTruth", "Detect")
+  MatchDetect[[i]] = df # character vectors are converted to factors
+  MatchDetectCharacter[[i]] = df2 # character vectors are not converted to factors
+}
+user_time2 = proc.time()[1]
+system_time2 = proc.time()[2]
+user_dif = user_time2 - user_time1
+system_dif = system_time2 - system_time1
+cat("The CPU time charged for the execution of user instructions:", user_dif)
+cat("The CPU time charged for the execution by the system:", system_dif)
+
+save(MatchDetect, file="../output/MatchDetect.RData")
+save(MatchDetectCharacter, file="../output/MatchDetectCharacter.RData")
+
+# dFunc = function(i){
+#   ## detect tesseract word error
+#   tesseract_vec <- tesseract_vec_all[[i]]
+#   tesseract_if_clean <- unlist(lapply(tesseract_vec,ifCleanToken)) # source code of ifCleanToken in in lib folder
+#   
+#   return(tesseract_if_clean)
+# }
+# 
+# DetectOutput = lapply(1:length(file_name_vec), dFunc)
+```
+
+# Step 4 - Error correction
+
+Given the detected word error, in order to find the best correction, we need to generating the candidate corrections: a dictionary or a database of legal n-grams to locate one or more potential correction terms. Then we need invoke some lexical-similarity measure between the misspelled string and the candidates or a probabilistic estimate of the likelihood of the correction to rank order the candidates.
+
+The referenced papers are:
+
+1. [Letter n-gram](https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=1672564}{positional binary digram)
+
+- focus on section 3-b.error correction
+
+2. Supervised model -- [correction regressor](https://arxiv.org/pdf/1611.06950.pdf)
+
+3. [probability scoring without context](https://link.springer.com/content/pdf/10.1007%2FBF01889984.pdf)
+
+- focus on section 3
+
+4. [probability scoring with contextual constraints](https://link.springer.com/content/pdf/10.1007%2FBF01889984.pdf)
+
+- focus on section 5
+
+5. [topic models](https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=4377099)
+
+## Feature Extraction
+```{r feature extraction}
+
+
+
+
+```
+
+
+## Regressor
+
+### Select optimal parameters
+
+```{r parameters}
+# tuneFunc = function(df, feature_col = 5){
+#   df1 = df[as.character(df$gt_term) == as.character(df$candidate),]
+#   return(mean(df1[, feature_col]))
+# }
+# 
+# ## feature 2
+# f2_scores = rep(NA, 5)
+# # combination 1 for feature2: a_1 = 0.5, a_2 = 0.25, a_3 = 0.25
+# # combination 2 for feature2: a_1 = 0.2, a_2 = 0.2, a_3 = 0.6
+# # combination 3 for feature2: a_1 = 0.4, a_2 = 0.4, a_3 = 0.2
+# # combination 4 for feature2: a_1 = 0.5, a_2 = 0.25, a_3 = 0.25
+# # combination 5 for feature2: a_1 = 0.3, a_2 = 0.5, a_3 = 0.2
+# for(i in 1:4){
+#   load(paste0("../output/data_set_f2_",i,".RData"))
+#   head(data_set)
+#   f2_scores[i] = tuneFunc(data_set, 5)
+# }
+# 
+# load(paste0("../output/data_set_f2_1.RData"))
+# ds1 = data_set
+# load(paste0("../output/data_set_f2_2.RData"))
+# ds2 = data_set
+# load(paste0("../output/data_set_f2_3.RData"))
+# ds3 = data_set
+# load(paste0("../output/data_set_f2_4.RData"))
+# ds4 = data_set
+```
+
+```{r regressor}
+set.seed(5)
+
+## seperate train set and test set
+## we split the data set to about 80% train set and 20% test set, file wise
+dataset_vec <- list.files("../output/datasets3/")
+train_file = sample(dataset_vec, round(length(dataset_vec)*0.8))
+test_file = setdiff(dataset_vec, train_file)
+train_set = data.frame()
+test_set = data.frame()
+for(i in 1:length(train_file)){
+  load(paste0("../output/datasets/", train_file[i]))
+  train_set = rbind(train_set, data_set)
+}
+n_test = length(test_file)
+test_ind = rep(NA, n_test)
+for(i in 1:n_test){
+  load(paste0("../output/datasets/", test_file[i]))
+  test_set = rbind(test_set, data_set)
+  name = strsplit(test_file[i], split =" dataset_")[[1]][2]
+  test_ind[i] = strsplit(name, split = ".RData")[[1]]
+}
+train_set$factory = factor(train_set$y)
+test_set$factory = factor(test_set$y)
+test_ind = as.numeric(test_ind)
+
+## train regressor
+reg = adam2(factory~feature1+feature2+feature3+feature4+feature5+feature6, data = train_set, size = 10, alg = "rf")
+
+## regression on the test set and rank candidates
+num_candidate = 3 # number of candidate for each error
+test_prob = predict(reg, newdata = test_set)
+test_outcome = data.frame(prob = test_prob, 
+                          error_term = test_set$error_term, gt_term = test_set$gt_term, candidate = test_set$candidate, 
+                          file_index = test_set$file_index, error_index = test_set$error_index,
+                          pair = rep(1:(nrow(test_set)/num_candidate), each = num_candidate)) %>%
+  group_by(pair) %>%
+  mutate(Rank = rank(prob, ties.method = "first")) %>%
+  mutate(Rank = num_candidate + 1 - Rank)
+
+## select the top 1 candidate as our correction
+selected_correction = test_outcome[test_outcome$Rank == 1,]
+save(selected_correction, file = "../output/selected_correction.RData")
+save(test_outcome, file = "../output/test_outcome.RData")
+
+# num_candidate = 3 # number of candidate for each error
+# num_error = nrow(data_set)/num_candidate
+# samps = sample(1:10, num_error, replace = T)
+# all_error = 1:num_error
+# train_error = all_error[samps <= 7]
+# test_error = all_error[samps > 7]
+# indFunc = function(index){
+#   return((num_candidate*index - (num_candidate-1)):(index*num_candidate))
+# }
+# train_index = as.numeric(sapply(train_error, indFunc))
+# test_index = as.numeric(sapply(test_error, indFunc))
+# train_set = data_set[train_index, ]
+# test_set = data_set[test_index, ]
+```
+
+# Step 5 - Performance measure
+
+The two most common OCR accuracy measures are precision and recall. Both are relative measures of the OCR accuracy because they are computed as ratios of the correct output to the total output (precision) or input (recall). More formally defined,
+\begin{align*}
+\mbox{precision}&=\frac{\mbox{number of correct items}}{\mbox{number of items in OCR output}}\\
+\mbox{recall}&=\frac{\mbox{number of correct items}}{\mbox{number of items in ground truth}}
+\end{align*}
+where *items* refer to either characters or words, and ground truth is the original text stored in the plain text file. 
+
+Both *precision* and *recall* are mathematically convenient measures because their numeric values are some decimal fractions in the range between 0.0 and 1.0, and thus can be written as percentages. For instance, recall is the percentage of words in the original text correctly found by the OCR engine, whereas precision is the percentage of correctly found words with respect to the total word count of the OCR output. Note that in the OCR-related literature, the term OCR accuracy often refers to recall.
+
+## Evaluation of Detection
+
+### Word Level
+```{r detection word level}
+load("../output/MatchDetectCharacter.RData")
+precisionDE<-rep(0,100)
+precisionBM<-rep(0,100)
+
+recallDE<-rep(0,100)
+recallBM<-rep(0,100)
+
+intersect_vec<-list()
+
+for (i in 1:100) {
+  ## precison and recall based on detection output
+  precisionDE[i]<-sum(as.logical(unlist(MatchDetectCharacter[[i]]$Detect)))/word_num_tes[i]
+  recallDE[i]<-sum(as.logical(unlist(MatchDetectCharacter[[i]]$Detect)))/word_num_gt[i]
+  
+  ## precision and recall based on Tesseract files
+  intersect_vec[i]<- length(vecsets::vintersect(tolower(unlist(gt_vec_all[i])),tolower(unlist(tesseract_vec_all[i]))))
+  precisionBM[i]<-as.numeric(intersect_vec[i])/word_num_tes[i]
+  recallBM[i]<-as.numeric(intersect_vec[i])/word_num_gt[i]
+}
+
+## visualize precision comparison
+pDetectCompare = data.frame(precision = c(precisionDE, precisionBM),
+                            file = rep(c(1:n_file), 2),
+                            category = rep(c("detection","Tesseract"),each = 100))
+ggplot(NULL) +
+  geom_line(aes(x = file, y = precision, color = category), data = pDetectCompare) +
+  xlab("file number") +
+  ylab("precisions") + 
+  ggtitle("Precision Comparison")
+
+## visualize recall comparison
+rDetectCompare = data.frame(recall = c(recallDE, recallBM),
+                            file = rep(c(1:n_file), 2),
+                            category = rep(c("detection","Tesseract"),each = 100))
+ggplot(NULL) +
+  geom_line(aes(x = file, y = recall, color = category), data = rDetectCompare) +
+  xlab("file number") +
+  ylab("recall") +
+  ggtitle("Recall Comparison")
+```
+
+### Confusion Matrix and Other KPI
+```{r detection confusion matrix}
+load("../output/MatchDetectCharacter.RData")
+CompareMD = MatchDetectCharacter
+compareFunc = function(df){
+  df$Actual = df$Tesseract == df$GroundTruth
+  return(df)
+}
+
+CompareDetect = lapply(CompareMD, compareFunc) # each element is a dataframe with a new column of actual detection
+## merge the detect and actual comparison of all 100 files into 1 matric
+CompareTF = cbind(unlist(sapply(CompareDetect, `[[`, "Detect")), unlist(sapply(CompareDetect, `[[`, "Actual"))) %>%
+  data.frame()
+colnames(CompareTF) = c("Detect", "Actual")
+
+## confusion matrix calculation
+confusionMatrix(data = CompareTF$Detect, reference = CompareTF$Actual)
+```
+
+## Evaluation of Correction
+
+### Word Level & Character Level
+```{r correction word level}
+load("../output/selected_correction.RData")
+load("../output/test_outcome.RData")
+
+OCR_performance_table <- data.frame("Tesseract" = rep(NA,4),
+                                    "PostProcessing" = rep(NA,4))
+row.names(OCR_performance_table) = c("word_wise_recall","word_wise_precision",
+                                    "character_wise_recall", "character_wise_precision")
+
+##################
+### Word Level ###
+##################
+
+##### Measurements on Tesseract Files #####
+wr_tes = rep(NA, n_file)
+wp_tes = rep(NA, n_file)
+for(i in 1:n_file){
+  tes_word = vecsets::vintersect(tolower(gt_vec_all[[i]]), tolower(tesseract_vec_all[[i]]))
+  wr_tes[i] = length(tes_word)/word_num_gt[i]
+  wp_tes[i] = length(tes_word)/word_num_tes[i]
+}
+OCR_performance_table["word_wise_recall","Tesseract"] <- mean(wr_tes)
+OCR_performance_table["word_wise_precision","Tesseract"] <- mean(wp_tes)
+
+##### Measurements on Corrected Files #####
+correct_vec_all = list()
+wr_correct = rep(NA, n_test)
+wp_correct = rep(NA, n_test)
+for(i in 1:n_test){
+  # restore our correction result to the text
+  file_ind = test_ind[i]
+  correct_current = selected_correction[selected_correction$file_index == file_ind, ]
+  correct_vec_current = tesseract_vec_all[[file_ind]]
+  correct_vec_current[correct_current$error_index] = correct_current$candidate
+  correct_vec_all[[i]] = correct_vec_current
+  correct_word = vecsets::vintersect(tolower(gt_vec_all[[file_ind]]), tolower(correct_vec_current))
+  wr_correct[i] = length(correct_word)/word_num_gt[file_ind]
+  wp_correct[i] = length(correct_word)/word_num_tes[file_ind]
+}
+OCR_performance_table["word_wise_recall","PostProcessing"] <- mean(wr_correct)
+OCR_performance_table["word_wise_precision","PostProcessing"] <- mean(wp_correct)
+
+#######################
+### Character Level ###
+#######################
+chars = c(letters,0,1,2,3,4,5,6,7,8,9)
+recallFunc = function(nums){
+    text = nums[1]
+    gt = nums[2]
+    return(min(text,gt)/max(text,gt))
+}
+precisionFunc = function(nums){
+    text = nums[1]
+    gt = nums[2]
+    return(min(text,gt)/text)
+}
+##### Measurements on Tesseract Files #####
+lr_tes = rep(NA, n_file)
+lp_tes = rep(NA, n_file)
+for(i in 1:n_file){
+  tes_letter = tolower(unlist(strsplit(tesseract_vec_all[[i]], split = "")))
+  tes_count = table(tes_letter)
+  names1 = names(tes_count)
+  gt_letter = tolower(unlist(strsplit(gt_vec_all[[i]], split = "")))
+  gt_count = table(gt_letter)
+  names2 = names(gt_count)
+  
+  char_current = intersect(intersect(names1, names2), chars)
+  
+  count_logi1 = names(tes_count) %in% char_current
+  tes_count = tes_count[count_logi1]
+  count_logi2 = names(gt_count) %in% char_current
+  gt_count = gt_count[count_logi2]
+  
+  counts = rbind(tes_count, gt_count)
+  
+  lr_tes[i] = mean(apply(counts, 2, recallFunc))
+  lp_tes[i] = mean(apply(counts, 2, precisionFunc))
+}
+OCR_performance_table["character_wise_recall","Tesseract"] <- mean(lr_tes)
+OCR_performance_table["character_wise_precision","Tesseract"] <- mean(lp_tes)
+
+##### Measurements on Corrected Files #####
+lr_correct = rep(NA, n_test)
+lp_correct = rep(NA, n_test)
+for(i in 1:n_test){
+  file_ind = test_ind[i]
+  correct_letter = tolower(unlist(strsplit(correct_vec_all[[i]], split = "")))
+  correct_count = table(correct_letter)
+  names1 = names(correct_count)
+  gt_letter = tolower(unlist(strsplit(gt_vec_all[[file_ind]], split = "")))
+  gt_count = table(gt_letter)
+  names2 = names(gt_count)
+  
+  char_current = intersect(intersect(names1, names2), chars)
+  
+  count_logi1 = names(correct_count) %in% char_current
+  correct_count = correct_count[count_logi1]
+  count_logi2 = names(gt_count) %in% char_current
+  gt_count = gt_count[count_logi2]
+  
+  counts = rbind(correct_count, gt_count)
+  
+  lr_correct[i] = mean(apply(counts, 2, recallFunc))
+  lp_correct[i] = mean(apply(counts, 2, precisionFunc))
+}
+OCR_performance_table["character_wise_recall","PostProcessing"] <- mean(lr_correct)
+OCR_performance_table["character_wise_precision","PostProcessing"] <- mean(lp_correct)
+
+kable(OCR_performance_table, caption="Comparison Between Tesseract & Post Processing")
+```
+
+### Top 3 Candidates Coverage
+
+In this part we calculate what is the proportion of errors that can be corrected by top 1, top 2 and top 3 candidates.
+
+```{r top 3}
+load("../output/test_outcome.RData")
+test_outcome_listed = test_outcome %>%
+  group_by(file_index, error_index) %>%
+  mutate(c1 = candidate[Rank == 1],
+         c2 = candidate[Rank == 2],
+         c3 = candidate[Rank == 3]) %>%
+  select(candidate,gt_term,file_index,error_index,c1,c2,c3,Rank) %>%
+  filter(Rank == 1) %>%
+  mutate(gt_term = as.character(gt_term), candidate = as.character(candidate),
+         c1 = as.character(c1), c2 = as.character(c2), c3 = as.character(c3))
+
+n_row = nrow(test_outcome_listed)
+test_coverage = test_outcome_listed %>%
+  group_by(file_index, error_index) %>%
+  mutate(cover1 = gt_term%in%c1,
+         cover2 = gt_term%in%c(c1,c2),
+         cover3 = gt_term%in%c(c1,c2,c3))
+cover_prop1 = sum(test_coverage$cover1)/n_row
+cover_prop2 = sum(test_coverage$cover2)/n_row
+cover_prop3 = sum(test_coverage$cover3)/n_row
+cover_result = data.frame("top 1" = cover_prop1, 
+                          "top 2" = cover_prop2, 
+                          "top 3" = cover_prop3)
+row.names(cover_result) = "test set"
+kable(cover_result, caption="Top 3 Candidates Coverage")
+```
+
+Besides the above required measurement, you are encouraged the explore more evaluation measurements. Here are some related references:
+
+1. Karpinski, R., Lohani, D., & Belaïd, A. *Metrics for Complete Evaluation of OCR Performance*. [pdf](https://csce.ucmss.com/cr/books/2018/LFS/CSREA2018/IPC3481.pdf)
+
+- section 2.1 Text-to-Text evaluation
+
+2. Mei, J., Islam, A., Wu, Y., Moh'd, A., & Milios, E. E. (2016). *Statistical learning for OCR text correction*. arXiv preprint arXiv:1611.06950. [pdf](https://arxiv.org/pdf/1611.06950.pdf)
+
+- section 5, separate the error detection and correction criterions
+
+3. Belaid, A., & Pierron, L. (2001, December). *Generic approach for OCR performance evaluation*. In Document Recognition and Retrieval IX (Vol. 4670, pp. 203-216). International Society for Optics and Photonics. [pdf](https://members.loria.fr/ABelaid/publis/spie02-belaid-pierron.pdf)
+
+- section 3.2, consider the text alignment
+
+# References {-}
+
+1. Borovikov, E. (2014). *A survey of modern optical character recognition techniques*. arXiv preprint arXiv:1412.4183.[pdf](https://pdfs.semanticscholar.org/79c9/cc90b8c2e2c9c54c3862935ea00df7dd56ed.pdf)
+(This paper is the source of our evaluation criterion)
+
+2. Kukich, K. (1992). *Techniques for automatically correcting words in text*. Acm Computing Surveys (CSUR), 24(4), 377-439. [pdf](http://www.unige.ch/eti/ptt/docs/kukich-92.pdf)
+(This paper is the benchmark review paper)
