@@ -4,7 +4,7 @@
 
 ### [Full Project Description](doc/project4_desc.md)
 
-+Term: Fall 2018
++ Term: Fall 2018
 
  + Team #8
  + Team members
@@ -46,7 +46,7 @@
 
 All team members contributed equally in all stages of this project. All team members approve our work presented in this GitHub repository including this contributions statement.
 
-+ Bai, Ruoxi: Designed and organized the structure of the whole project; Data preprocessing(Part 1&2); Error Detection; Regression Model; Evaluation(Detection & Correction) and visualization; Debugging; Code readibility.
++ Bai, Ruoxi: Organized the structure of the whole project; Data preprocessing(Part 1&2); Error Detection; Regression Model; Evaluation(Detection & Correction) and visualization; Debugging; Code readibility.
 + Loewenstein, Oded: Feature: Levenshtein edit distance & feature: Lexicon existance; Tune parameters from regression model and visualization.
 + Yan, Jiaming: Feature: String similarity & feature: Language popularity.
 + Zhong, Qingyang: Data preprocessing(Part 1); Error Detection; Evaluation(Detection) and visualization; Combine all codes together; README; Code readibility; Presentation.
