@@ -30,6 +30,7 @@ h4 { /* Header 4 */
   color: Grey;
 }
 </style>
+
 # Introduction {-}
 
 Optical character recognition (OCR) is the process of converting scanned images of machine printed or
@@ -43,14 +44,11 @@ handwritten text (numerals, letters, and symbols), into machine readable charact
 
 ![](../figs/ocr_flowchart.png) 
 
-We have processed raw scanned images through the first two steps are relying on the [Tessearct OCR machine](https://en.wikipedia.org/wiki/Tesseract_(software)). R package tutorial can be found [here](https://www.r-bloggers.com/the-new-tesseract-package-high-quality-ocr-in-r/). 
-
-BUT this is not the FOCUS of this project!!!
-
 In this project, we are going to **focus on the third stage -- post-processing**, which includes two tasks: *error detection* and *error correction*.  
 
 # Step 1 - Load library and source code
-```{r, warning=FALSE, message = FALSE}
+
+```{r load library, warning=FALSE, message = FALSE}
 if (!require("devtools")) install.packages("devtools")
 if (!require("pacman")) {
   ## devtools is required
@@ -66,23 +64,14 @@ library(dplyr)
 pacman::p_load(knitr, readr, stringr, tesseract, vecsets)
 source('../lib/ifCleanToken.R')
 file_name_vec <- list.files("../data/ground_truth") #100 files in total
-
-# output: 
-#   html_document:
-#     toc: true
-#     toc_depth: 2
-#     toc_float:
-#       collapsed: false
-#       smooth_scroll: false
-#     number_sections: true
-#     code_folding: show
 ```
+
 
 # Step 2 - read the files and conduct Tesseract OCR
 
-Although we have processed the Tesseract OCR and save the output txt files in the `data` folder, we include this chunk of code in order to make clear the whole pipeline to you.
+Although we have processed the Tesseract OCR and save the output txt files in the `data` folder, we include this chunk of code in order to make clear the whole pipeline.
 
-```{r, eval=FALSE}
+```{r read file, eval=FALSE}
 # for(i in c(1:length(file_name_vec))){
 #   current_file_name <- sub(".txt","",file_name_vec[i])
 #   ## png folder is not provided on github (the code is only on demonstration purpose)
@@ -97,30 +86,14 @@ Although we have processed the Tesseract OCR and save the output txt files in th
 # }
 ```
 
-# Step 3 - Error detection
 
-Now, we are ready to conduct post-processing, based on the Tessearct OCR output. First of all, we need to detect errors, or *incorrectly processed words* -- check to see if an input string is a valid dictionary word or if its n-grams are all legal.
+# Step 3 - Data preprocessing
 
-The referenced papers are:
+Because the word from ground truth and tesseract are not perfectly one on one matched, so in this step we preprocess our data so in the following steps we can work on error detection and correction by comparing each word from Tesseract and Ground Truth.
 
-1. [Rule-based techniques](http://webpages.ursinus.edu/akontostathis/KulpKontostathisFinal.pdf)
+## Find pairs of Tesseract and ground truth files do not have the same number of lines. 
 
-- rules are in the section 2.2 
-
-2. [Letter n-gram](https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=1672564)
-
-- focus on positional binary digram in section 3-a.error detection
-
-3. Probabilistic techniques -- [SVM garbage detection](https://dl.acm.org/citation.cfm?doid=2034617.2034626)
-
-- features are in section 5 (you can choose not to implement ‘Levenshtein distance’ feature)
-
-
-In this statercode, we implement the first three rules in the first paper -- rule based techniques, as an example.
-
-## Data preparation
-
-```{r}
+```{r preprocessing1}
 # read ground truth text into 1 list
 n_file = length(file_name_vec)
 tesseract_vec_all = list() # each element is a vector of words for each text file
@@ -157,13 +130,15 @@ n_file-sum(len_check)
 
 The above chunck shows that 13 pairs of Tesseract and ground truth files do not have the same number of lines, and for such pairs, the ground truth files always have more lines than the Tesseract files.
 
-Therefore, we trimmed the ground truth files manually until they have the same length with the corresponding Tesseract files, and saved them in a new folder called "ground_truth_trimmed". 
+Therefore, we trimmed the ground truth files manually until they have the same length with the corresponding Tesseract files.
 
 To simplify the word alignment process, we only work on the line pairs that have same number of words. As calculated below, only 11% of lines are discarded this way, our method can still work for the major cases.
 
 All the process stated below are based on trimmed files, same length line pairs.
 
-```{r}
+## Delete rows in ground truth and tesseract which character number don’t match.
+
+```{r preprocessing2}
 same_na = rep(NA, n_file)
 
 ## count number of lines in total
@@ -230,13 +205,27 @@ all(map11)
 1 - processed_lines/raw_lines # = 0.1132
 ```
 
-## Detection
+After this process we delete about 11.32% of the data, and saved processed data in a new folder called "ground_truth_trimmed". 
+
+For the following steps we proceed with this "ground_truth_trimmed" dataset.
+
+
+# Step 4 - Error detection
+
+Now, we are ready to conduct post-processing, based on the Tessearct OCR output. First of all, we need to detect errors, or *incorrectly processed words* -- check to see if an input string is a valid dictionary word or if its n-grams are all legal.
+
+The referenced papers are:
+
+ [Rule-based techniques](http://webpages.ursinus.edu/akontostathis/KulpKontostathisFinal.pdf)
+
+- rules are in the section 2.2 
 
 Each element in the list in this following chunck is a dataframe for a pair of files. Each row in a dataframe contains the Tesseract word, its ground truth word and the detect output.
 
 The CPU time charged for the execution: 1909.355
 The CPU time charged for the execution of user instructions: 484.844
-```{r}
+
+```{r detection}
 MatchDetect = list()
 MatchDetectCharacter = list()
 user_time1 = proc.time()[1]
@@ -263,49 +252,234 @@ cat("The CPU time charged for the execution by the system:", system_dif)
 save(MatchDetect, file="../output/MatchDetect.RData")
 save(MatchDetectCharacter, file="../output/MatchDetectCharacter.RData")
 
-# dFunc = function(i){
-#   ## detect tesseract word error
-#   tesseract_vec <- tesseract_vec_all[[i]]
-#   tesseract_if_clean <- unlist(lapply(tesseract_vec,ifCleanToken)) # source code of ifCleanToken in in lib folder
-#   
-#   return(tesseract_if_clean)
-# }
-# 
-# DetectOutput = lapply(1:length(file_name_vec), dFunc)
 ```
 
-# Step 4 - Error correction
+# Step 5 - Error correction
 
 Given the detected word error, in order to find the best correction, we need to generating the candidate corrections: a dictionary or a database of legal n-grams to locate one or more potential correction terms. Then we need invoke some lexical-similarity measure between the misspelled string and the candidates or a probabilistic estimate of the likelihood of the correction to rank order the candidates.
 
 The referenced papers are:
 
-1. [Letter n-gram](https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=1672564}{positional binary digram)
+Supervised model -- [correction regressor](https://arxiv.org/pdf/1611.06950.pdf)
 
-- focus on section 3-b.error correction
+## build ground_truth file
+```{r candidate}
+load("../output/MatchDetect.RData")
+## ground truth string file
+ground_truth <- NULL
+ground_truth <- paste(unlist(gt_lines_all), collapse = " ")
+ground_truth_vec <- str_split(ground_truth," ")[[1]] 
+```
 
-2. Supervised model -- [correction regressor](https://arxiv.org/pdf/1611.06950.pdf)
+## build ngram frequency vocabulary
+```{r ngram}
+ground_truth <- iconv(ground_truth, "latin1", "ASCII", sub="") # pre_clean data
+ground_truth <- iconv(ground_truth,to="utf-8-mac")
+ground_truth_Corpus <- VCorpus(VectorSource(ground_truth)) # Make corpus
+ground_truth_Corpus <- tm_map(ground_truth_Corpus, stripWhitespace) # Remove unneccesary white spaces
+ground_truth_Corpus <- tm_map(ground_truth_Corpus, removePunctuation) # Remove punctuation
+ground_truth_Corpus <- tm_map(ground_truth_Corpus, removeNumbers) # Remove numbers
+ground_truth_Corpus <- tm_map(ground_truth_Corpus, tolower) # Convert to lowercase
+ground_truth_Corpus <- tm_map(ground_truth_Corpus, PlainTextDocument) # Plain text
 
-3. [probability scoring without context](https://link.springer.com/content/pdf/10.1007%2FBF01889984.pdf)
+n_grams_vocabulary <- function(n, data) {
+  options(mc.cores=1)
+  # Builds n-gram tokenizer 
+  tk <- function(x) NGramTokenizer(x, Weka_control(min = n, max = n))
+  # Create matrix
+  ngrams_matrix <- TermDocumentMatrix(data, control=list(tokenize=tk))
+  # make matrix for easy view
+  ngrams_matrix <- as.matrix(rollup(ngrams_matrix, 2, na.rm=TRUE, FUN=sum))
+  ngrams_matrix <- data.frame(word=rownames(ngrams_matrix), freq=ngrams_matrix[,1])
+  # find 20 most frequent n-grams in the matrix
+  ngrams_matrix <- ngrams_matrix[order(-ngrams_matrix$freq), ]
+  ngrams_matrix$word <- factor(ngrams_matrix$word, as.character(ngrams_matrix$word))
+  return(ngrams_matrix)
+}
 
-- focus on section 3
+#unigram <- n_grams_vocabulary(n=1, data=ground_truth_Corpus)
+#three_gram <- n_grams_vocabulary(n=3, data=ground_truth_Corpus)
+#save(unigram, file=paste0("../output/unigram.RData"))
+#save(three_gram, file=paste0("../output/three_gram.RData"))
 
-4. [probability scoring with contextual constraints](https://link.springer.com/content/pdf/10.1007%2FBF01889984.pdf)
+# plots first 20 three_gram
+ggplot(three_gram[1:20,], aes(x=word, y=freq)) + 
+  geom_bar(stat="Identity") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + xlab("three-grams") + 
+  ylab("Frequency")
+```
 
-- focus on section 5
+## build features, create dataset
+```{r features}
+Sys.time()
+correct_pattern <- function(single_pattern){
+  return(gsub(x = single_pattern, pattern = "\\(", replacement = "\\\\\\(", ignore.case = TRUE))
+}
 
-5. [topic models](https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=4377099)
 
-## Feature Extraction
-```{r feature extraction}
+initial_dataset <- function(){
+  data_set <- data.frame("error_term" = character(0), 
+                           "gt_term" = character(0), 
+                           "candidate" = character(0),
+                           "feature1" = integer(0),
+                           "feature2" = integer(0),
+                            "feature3" = integer(0),
+                            "feature4" = integer(0),
+                           "feature5" = integer(0),
+                           "feature6" = integer(0),
+                           "file_index" = integer(0),
+                           "error_index" = integer(0))
+  return(data_set)
+  
+}
 
 
 
+## function to calcualte candidate's exact frequency
+freq5 <- function(test, n_gram){
+  ifelse(sum(n_gram$word == test) == 0, 0, n_gram[n_gram$word == test, ]$freq)
+}
+
+## function to calcualte candidate's relaxd frequency
+freq6 <- function(test, ngram){
+  test <- correct_pattern(test)
+  ifelse(sum(grep(test, ngram$word)) == 0, 0, sum(ngram$freq[grep(test, ngram$word)]))
+}
+
+## function to calculate score based on context frequency
+context_score <- function(frequency){
+  if(max(frequency) == 0){
+    return(frequency)
+  }else{
+    return(frequency/max(frequency))
+  } 
+}
+
+
+# parameter of feature1
+delta <- 5
+# first s elements we keep in the candidate_set
+s <- 3
+
+source("../lib/string_similarity.R") # used in calculating feature2
+
+#### initial the filepath for storing the output
+filepath = "../output/"
+## for each file  #length(tesseract_lines_all), c(1, 3, 4, 7, 8)
+for (i in 23) {
+  
+  data_set = initial_dataset()
+  start_time_ds <- Sys.time()
+  ## create lexicon for candidate search
+  # ground_truth lexicon
+  current_gt <- paste(gt_lines_all[[i]], collapse = " ")
+  current_gt_vec <- str_split(current_gt, " ")[[1]]
+  
+  additional_file <- sample((1:100)[-i],  1)
+  all_gt <- paste(c(gt_lines_all[[i]], 
+                    gt_lines_all[[additional_file[1]]]), collapse = " ")
+  all_gt_vec <- str_split(all_gt," ")[[1]] 
+  all_gt_vec <- unique(all_gt_vec)
+  
+  ## search error_term and corresponding ground truth for each file
+  error_position <- which(MatchDetect[[i]]$Detect == FALSE)
+  error_term <- as.character(MatchDetect[[i]]$Tesseract[error_position])
+  gt_term <- as.character(MatchDetect[[i]]$GroundTruth[error_position])
+
+  ## for each error  #length(error_term)
+  for (j in 1:length(error_term)){
+    w_e <- error_term[j] # word_error
+    ## create a candidate set for each error
+    leven_distance <- sapply(all_gt_vec, stringdist, b = w_e, method = "lv") # calculate Levenshtein distance between error term and each candidate in all_gt_vec
+    chosen_candidate <- order(leven_distance)[1:s] # chose first s candidates position
+    candidate_set <- all_gt_vec[chosen_candidate]
+    
+    ## feature scoring
+    
+    ### feature1: Levenshtein edit distance
+    # Levenshtein distance for the candidate
+    dist_candidate <- as.numeric(leven_distance[chosen_candidate])
+    score_led <- 1 - dist_candidate/(delta + 1)
+    
+    ### feature2: String similarity
+    score_ss <- string_similiarity(w_e, candidate_set)
+    
+    ### feature3: Language popularity
+    frequency3 <- unlist(lapply(candidate_set, freq5, unigram))
+    score_lp <- context_score(frequency3)
+    
+    ### feature4: lexicon existance
+    score_le <- as.numeric(candidate_set%in%current_gt_vec)
+    
+    ### feature5 and 6: exact-context popularity andrelaxed-context popularity
+    # neighboring terms
+    minus2 <-  as.character(MatchDetect[[i]]$Tesseract[abs(error_position[j] - 2)])
+    minus1 <- as.character(MatchDetect[[i]]$Tesseract[abs(error_position[j] - 1)])
+    positive1 <-  as.character(MatchDetect[[i]]$Tesseract[min((error_position[j] + 1), nrow(MatchDetect[[i]]))])
+    positive2 <-  as.character(MatchDetect[[i]]$Tesseract[min((error_position[j] + 2), nrow(MatchDetect[[i]]))])
+    frequency5 <- frequency6 <- NULL
+    ## feature5 and feature6
+    # for each candidate, calculate ngram frequency 
+    for (k in 1:length(candidate_set)) {
+      # tested candidate
+      candidate <- candidate_set[k]
+      # feature5: exact-context popularity
+      ngram1 <- paste(c(minus2, minus1, candidate), collapse = " ")
+      ngram2 <- paste(c(minus1, candidate, positive1), collapse = " ")
+      ngram3 <- paste(c(candidate, positive1, positive2), collapse = " ")
+      # candidate ngram freq (exact)
+      candidate_frequency <- sum(freq5(ngram1, three_gram), 
+                                 freq5(ngram2, three_gram),   
+                                 freq5(ngram3, three_gram))
+      frequency5 <- append(frequency5, candidate_frequency)
+      
+      # feature6: relaxed-context popularity
+      ngram1_1 <- paste(c(".", minus1, candidate), collapse = " ")
+      ngram1_2 <- paste(c(minus2, ".", candidate), collapse = " ")
+
+      ngram2_1 <- paste(c(".", candidate, positive1), collapse = " ")
+      ngram2_2 <- paste(c(minus1, candidate, "."), collapse = " ")
+      
+      ngram3_1 <- paste(c(candidate, ".", positive2), collapse = " ")
+      ngram3_2 <- paste(c(candidate, positive1, "."), collapse = " ")
+      # candidate ngram freq (relaxed)
+      candidate_frequency <- sum(freq6(ngram1_1, three_gram), 
+                                 freq6(ngram1_2, three_gram), 
+                                 freq6(ngram2_1, three_gram), 
+                                 freq6(ngram2_2, three_gram),
+                                 freq6(ngram3_1, three_gram),
+                                 freq6(ngram3_2, three_gram))
+      frequency6 <- append(frequency6, candidate_frequency)
+    }
+    
+    score_ecp <- context_score(frequency5)
+    score_rcp <- context_score(frequency6)
+
+    data_set <- add_row(data_set, "error_term" = rep(w_e, length(candidate_set)), 
+                           "gt_term" = rep(gt_term[j], length(candidate_set)), 
+                           "candidate" = candidate_set,
+                           "feature1" = score_led,
+                           "feature2" = score_ss,
+                          "feature4" = score_le,
+                           "feature3" = score_lp,
+                           "feature5" = score_ecp,
+                           "feature6" = score_rcp,
+                        "file_index" = rep(i, length(candidate_set)),
+                        "error_index" = rep(error_position[j], length(candidate_set)))
+
+  }
+# the loop for each file
+data_set$y <- as.numeric(data_set$gt_term == data_set$candidate)
+end_time_ds <- Sys.time()
+# time_ds <- end_time_ds - start_time_ds ## file1, 3, 4, 7, 8; first 20 errors for each file; first 5 candidates for each error
+print(paste("Running time for building dataset = ", (end_time_ds - start_time_ds)))
+filename = paste(paste("dataset", i, sep = "_"), "RData", sep = ".")
+save(data_set, file=paste(filepath, filename))
+}
 
 ```
 
-
-## Regressor
+## Regression
 
 ### Select optimal parameters
 
@@ -338,9 +512,12 @@ The referenced papers are:
 # ds4 = data_set
 ```
 
-```{r regressor}
-set.seed(1)
 
+### Use AdaBoost.R2 Model on top of decision trees with 0-1 loss function.
+
+```{r regressor}
+
+set.seed(1)
 ## seperate train set and test set
 ## we split the data set to about 80% train set and 20% test set, file wise
 dataset_vec <- list.files("../output/datasets/")
@@ -383,22 +560,9 @@ selected_correction = test_outcome[test_outcome$Rank == 1,]
 save(selected_correction, file = "../output/selected_correction.RData")
 save(test_outcome, file = "../output/test_outcome.RData")
 
-# num_candidate = 3 # number of candidate for each error
-# num_error = nrow(data_set)/num_candidate
-# samps = sample(1:10, num_error, replace = T)
-# all_error = 1:num_error
-# train_error = all_error[samps <= 7]
-# test_error = all_error[samps > 7]
-# indFunc = function(index){
-#   return((num_candidate*index - (num_candidate-1)):(index*num_candidate))
-# }
-# train_index = as.numeric(sapply(train_error, indFunc))
-# test_index = as.numeric(sapply(test_error, indFunc))
-# train_set = data_set[train_index, ]
-# test_set = data_set[test_index, ]
 ```
 
-# Step 5 - Performance measure
+# Step 6 - Performance measure
 
 The two most common OCR accuracy measures are precision and recall. Both are relative measures of the OCR accuracy because they are computed as ratios of the correct output to the total output (precision) or input (recall). More formally defined,
 \begin{align*}
@@ -407,11 +571,9 @@ The two most common OCR accuracy measures are precision and recall. Both are rel
 \end{align*}
 where *items* refer to either characters or words, and ground truth is the original text stored in the plain text file. 
 
-Both *precision* and *recall* are mathematically convenient measures because their numeric values are some decimal fractions in the range between 0.0 and 1.0, and thus can be written as percentages. For instance, recall is the percentage of words in the original text correctly found by the OCR engine, whereas precision is the percentage of correctly found words with respect to the total word count of the OCR output. Note that in the OCR-related literature, the term OCR accuracy often refers to recall.
-
 ## Evaluation of Detection
 
-### Word Level
+### Word Level Precision & Recall 
 ```{r detection word level}
 load("../output/MatchDetectCharacter.RData")
 precisionDE<-rep(0,100)
@@ -452,7 +614,19 @@ ggplot(NULL) +
   xlab("file number") +
   ylab("recall") +
   ggtitle("Recall Comparison")
+
+## form a table for result
+Detection_performance_table <- data.frame("Tesseract" = rep(NA,2),
+                                    "Detection" = rep(NA,2))
+row.names(Detection_performance_table) = c("word_wise_recall","word_wise_precision")
+Detection_performance_table["word_wise_recall","Tesseract"] <- mean(recallBM)
+Detection_performance_table["word_wise_precision","Tesseract"] <- mean(precisionBM)
+Detection_performance_table["word_wise_recall","Detection"] <- mean(recallDE)
+Detection_performance_table["word_wise_precision","Detection"] <- mean(precisionDE)
+kable(Detection_performance_table, caption="Comparison Between Tesseract & Detection")
 ```
+
+If the detection algorithm works well, the red line and blue line should be close to each other. But in our output they are not exactly the same, but we can see that red line and blue line in both pictures have the same trend.
 
 ### Confusion Matrix and Other KPI
 ```{r detection confusion matrix}
@@ -473,9 +647,13 @@ colnames(CompareTF) = c("Detect", "Actual")
 confusionMatrix(data = CompareTF$Detect, reference = CompareTF$Actual)
 ```
 
+Then we construct a confusion matrix, and then we found that the major problem of our detection algorithm is false positive, which is a true error indicated by ground truth but can not be detected by our detection method.
+
+We believed that it is probably because this rule based method is rather intuitive, not context-adjusted. Adding more rules or put different weight in each rules may be helpful.
+
 ## Evaluation of Correction
 
-### Word Level & Character Level
+### Word Level & Character Level Precision & Recall 
 ```{r correction word level}
 load("../output/selected_correction.RData")
 load("../output/test_outcome.RData")
@@ -555,8 +733,8 @@ for(i in 1:n_file){
   lr_tes[i] = mean(apply(counts, 2, recallFunc))
   lp_tes[i] = mean(apply(counts, 2, precisionFunc))
 }
-OCR_performance_table["character_wise_recall","Tesseract"] <- mean(wr_tes)
-OCR_performance_table["character_wise_precision","Tesseract"] <- mean(wp_tes)
+OCR_performance_table["character_wise_recall","Tesseract"] <- mean(lr_tes)
+OCR_performance_table["character_wise_precision","Tesseract"] <- mean(lp_tes)
 
 ##### Measurements on Corrected Files #####
 lr_correct = rep(NA, n_test)
@@ -587,6 +765,8 @@ OCR_performance_table["character_wise_precision","PostProcessing"] <- mean(lp_co
 
 kable(OCR_performance_table, caption="Comparison Between Tesseract & Post Processing")
 ```
+
+After calculation we find that our post-processing process can make an enhancement on our OCR result. Word and character level of precision and recall is improved.
 
 ### Top 3 Candidates Coverage
 
@@ -620,24 +800,15 @@ row.names(cover_result) = "test set"
 kable(cover_result, caption="Top 3 Candidates Coverage")
 ```
 
-Besides the above required measurement, you are encouraged the explore more evaluation measurements. Here are some related references:
+From this indicator we can see that more than 59% of error can be corrected by top 3 candidates provided by our correction method.
 
-1. Karpinski, R., Lohani, D., & Belaïd, A. *Metrics for Complete Evaluation of OCR Performance*. [pdf](https://csce.ucmss.com/cr/books/2018/LFS/CSREA2018/IPC3481.pdf)
+### Time Consuming
 
-- section 2.1 Text-to-Text evaluation
+We timed our detection process and feature scoring process,
 
-2. Mei, J., Islam, A., Wu, Y., Moh'd, A., & Milios, E. E. (2016). *Statistical learning for OCR text correction*. arXiv preprint arXiv:1611.06950. [pdf](https://arxiv.org/pdf/1611.06950.pdf)
+Detection process shows that:
 
-- section 5, separate the error detection and correction criterions
+The CPU time charged for the execution: 1909.355
+The CPU time charged for the execution of user instructions: 484.844
 
-3. Belaid, A., & Pierron, L. (2001, December). *Generic approach for OCR performance evaluation*. In Document Recognition and Retrieval IX (Vol. 4670, pp. 203-216). International Society for Optics and Photonics. [pdf](https://members.loria.fr/ABelaid/publis/spie02-belaid-pierron.pdf)
-
-- section 3.2, consider the text alignment
-
-# References {-}
-
-1. Borovikov, E. (2014). *A survey of modern optical character recognition techniques*. arXiv preprint arXiv:1412.4183.[pdf](https://pdfs.semanticscholar.org/79c9/cc90b8c2e2c9c54c3862935ea00df7dd56ed.pdf)
-(This paper is the source of our evaluation criterion)
-
-2. Kukich, K. (1992). *Techniques for automatically correcting words in text*. Acm Computing Surveys (CSUR), 24(4), 377-439. [pdf](http://www.unige.ch/eti/ptt/docs/kukich-92.pdf)
-(This paper is the benchmark review paper)
+Feature Scoring process shows that: on average it takes about 7.3767 minute to complete a text.
