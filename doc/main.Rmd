@@ -103,7 +103,7 @@ Although we have processed the Tesseract OCR and save the output txt files in th
 
 Because the word from ground truth and tesseract are not perfectly one on one matched, so in this step we preprocess our data so in the following steps we can work on error detection and correction by comparing each word from Tesseract and Ground Truth.
 
-## Find pairs of Tesseract and ground truth files do not have the same number of lines. 
+## Part 1: Find pairs of Tesseract and ground truth files do not have the same number of lines. 
 
 ```{r preprocessing1}
 # read ground truth text into 1 list
@@ -148,7 +148,7 @@ To simplify the word alignment process, we only work on the line pairs that have
 
 All the process stated below are based on trimmed files, same length line pairs.
 
-## Delete rows in ground truth and tesseract which character number don’t match.
+## Part 2: Delete rows in ground truth and tesseract which character number don’t match.
 
 ```{r preprocessing2}
 same_na = rep(NA, n_file)
