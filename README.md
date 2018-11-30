@@ -14,7 +14,9 @@ Term: Fall 2018
 	+ Zhong, Qingyang   qz2317  (presenter)
 	+ Zhu, Siyu   sz2716
 
-+ Project summary: In this project, we created an OCR post-processing procedure to enhance Tesseract OCR output. 
+**Project summary**: 
+
+In this project, we created an OCR post-processing procedure to enhance Tesseract OCR output. 
 
 And here is our steps:
 1. Preprocess the data, manually trimmed ground truth since there are 13 pairs of Tesseract and ground truth files that do not have the same number of lines. 
@@ -22,14 +24,22 @@ And here is our steps:
 ![image](figs/rules.png)
 3. Error Correction, first calculate 6 features scoring for each candidate based on assigned [paper C2](doc/paper/C-2.pdf), then use AdaBoost.R2 model on top of decision trees with 0-1 loss function. Generate a prediction of top 3 best results as correction.
 ![image](figs/features.png)
-4.Evaluated OCR performance by calculating precision and recall for both word-level and character-level.
+4. Evaluate detection preformance by calculating precision and recall for word-level. Then construct a confusion matrix.
+![image](figs/formula.png)
+![image](figs/eva_de.png)
+4. Evaluated correction performance by calculating precision and recall for both word-level and character-level. Then calculate Top 3 candidate coverage.
+![image](figs/eva_cor.png)
+5. Evaluate the algorithm as a whole.
 ![image](figs/evaluation.png)
 	
 **Contribution statement**: 
-+ Bai, Ruoxi: Designed and organized the structure of the whole project; Data preprocessing(step1&2); Error Detection; Regression Model; Evaluation(Detection & Correction) and visualization; Debugging; Code readibility.
+
+All team members contributed equally in all stages of this project. All team members approve our work presented in this GitHub repository including this contributions statement.
+
++ Bai, Ruoxi: Designed and organized the structure of the whole project; Data preprocessing(Part 1&2); Error Detection; Regression Model; Evaluation(Detection & Correction) and visualization; Debugging; Code readibility.
 + Loewenstein, Oded: Feature: Levenshtein edit distance & feature: Lexicon existance; Tune parameters from regression model and visualization.
 + Yan, Jiaming: Feature: String similarity & feature: Language popularity.
-+ Zhong, Qingyang: Data preprocessing(step1); Error Detection; Evaluation(Detection) and visualization; Combine all codes together; README; Code readibility; Presentation.
++ Zhong, Qingyang: Data preprocessing(Part 1); Error Detection; Evaluation(Detection) and visualization; Combine all codes together; README; Code readibility; Presentation.
 + Zhu, Siyu: Candidate search; N-gram function; Feature: Exact-context popularity & feature: Relaxed-context popularity; Combine 6 features together.
 
 Following [suggestions](http://nicercode.github.io/blog/2013-04-05-projects/) by [RICH FITZJOHN](http://nicercode.github.io/about/#Team) (@richfitz). This folder is orgarnized as follows.
