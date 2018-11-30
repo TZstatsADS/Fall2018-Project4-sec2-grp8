@@ -40,7 +40,7 @@
 **Functions**: 
 
 + Four functions were implemented for different purposes of this project. 
-+ Detailed descriptions can be found [here].(lib/README.md)
++ Detailed descriptions can be found [here](lib/README.md).
 	
 **Contribution statement**: 
 
