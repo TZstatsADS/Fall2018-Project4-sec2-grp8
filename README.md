@@ -37,6 +37,11 @@
  + 6. Evaluate the algorithm as a whole.
 ![image](figs/evaluation.png)
 	
+**Functions**: 
+
++ Four functions were implemented for different purposes of this project. 
++ Detailed descriptions can be found [here].(lib/README.md)
+	
 **Contribution statement**: 
 
 All team members contributed equally in all stages of this project. All team members approve our work presented in this GitHub repository including this contributions statement.
@@ -46,6 +51,8 @@ All team members contributed equally in all stages of this project. All team mem
 + Yan, Jiaming: Feature: String similarity & feature: Language popularity.
 + Zhong, Qingyang: Data preprocessing(Part 1); Error Detection; Evaluation(Detection) and visualization; Combine all codes together; README; Code readibility; Presentation.
 + Zhu, Siyu: Candidate search; N-gram function; Feature: Exact-context popularity & feature: Relaxed-context popularity; Combine 6 features together.
+
+**Github Organization**:
 
 Following [suggestions](http://nicercode.github.io/blog/2013-04-05-projects/) by [RICH FITZJOHN](http://nicercode.github.io/about/#Team) (@richfitz). This folder is orgarnized as follows.
 
