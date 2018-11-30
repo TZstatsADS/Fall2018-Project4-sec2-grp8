@@ -1,5 +1,7 @@
-string_similiarity <- function(w_e, candidate_set) {
-  library(qualV)
+string_similiarity <- function(w_e, candidate_set,a.1,a.2,a.3) {
+  # this function is used to calculate feature 2 score
+  
+  library("qualV")
   
   # First, break each candidate string and the error into single letter
   w_c_list <- strsplit(candidate_set, split = "")
@@ -58,13 +60,9 @@ string_similiarity <- function(w_e, candidate_set) {
   nmnlcs_z <- consecutive(vector = w_e_rev, list = w_c_rev_list, n = 1)/(w_c_len + length(w_e))
   
   # Not sure how to choose alphas, giving them a defult 1/4
-  a_1 <- 0.4
-  a_2 <- 0.3
-  a_3 <- 0.3
+  a_1 <- a.1
+  a_2 <- a.2
+  a_3 <- a.3
   score <- a_1 * nlcs + a_2 * nmnlcs_1 + a_3 * nmnlcs_z
   return(score)
 }
-
-
-
-

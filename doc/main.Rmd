@@ -2,8 +2,8 @@
 title: "OCR Post-Processing"
 author: "Sec2 Group8"
 output:
-  html_document:
-    df_print: paged
+  html_notebook: default
+  pdf_document: default
 ---
 
 GU4243/GR5243: Applied Data Science
@@ -63,8 +63,20 @@ library(dplyr)
 
 pacman::p_load(knitr, readr, stringr, tesseract, vecsets)
 source('../lib/ifCleanToken.R')
+source("../lib/featureFuncs.R") # most functions for feature calculation are stored here
+source("../lib/string_similarity.R") # used in calculating feature2
+source("../lib/smallFuncs.R") # used somewhere in the middle for efficiency
 file_name_vec <- list.files("../data/ground_truth") #100 files in total
 ```
+*functions in lib files:*
+
+ifCleanToken.R: detect3(aString), detectVC(aString), ifCleanToken(cur_token)
+
+featureFuncs.R: n_grams_vocabulary(n, data), freq5(test, n_gram), freq6(test, ngram), context_score(frequency), correct_pattern(single_pattern)
+
+string_similarity.R: string_similiarity(w_e, candidate_set, a.1, a.2, a.3)
+
+smallFuncs.R: compareFunc(df), recallFunc(nums), precisionFunc(nums)
 
 
 # Step 2 - read the files and conduct Tesseract OCR
@@ -282,25 +294,10 @@ ground_truth_Corpus <- tm_map(ground_truth_Corpus, removeNumbers) # Remove numbe
 ground_truth_Corpus <- tm_map(ground_truth_Corpus, tolower) # Convert to lowercase
 ground_truth_Corpus <- tm_map(ground_truth_Corpus, PlainTextDocument) # Plain text
 
-n_grams_vocabulary <- function(n, data) {
-  options(mc.cores=1)
-  # Builds n-gram tokenizer 
-  tk <- function(x) NGramTokenizer(x, Weka_control(min = n, max = n))
-  # Create matrix
-  ngrams_matrix <- TermDocumentMatrix(data, control=list(tokenize=tk))
-  # make matrix for easy view
-  ngrams_matrix <- as.matrix(rollup(ngrams_matrix, 2, na.rm=TRUE, FUN=sum))
-  ngrams_matrix <- data.frame(word=rownames(ngrams_matrix), freq=ngrams_matrix[,1])
-  # find 20 most frequent n-grams in the matrix
-  ngrams_matrix <- ngrams_matrix[order(-ngrams_matrix$freq), ]
-  ngrams_matrix$word <- factor(ngrams_matrix$word, as.character(ngrams_matrix$word))
-  return(ngrams_matrix)
-}
-
-#unigram <- n_grams_vocabulary(n=1, data=ground_truth_Corpus)
-#three_gram <- n_grams_vocabulary(n=3, data=ground_truth_Corpus)
-#save(unigram, file=paste0("../output/unigram.RData"))
-#save(three_gram, file=paste0("../output/three_gram.RData"))
+unigram <- n_grams_vocabulary(n=1, data=ground_truth_Corpus)
+three_gram <- n_grams_vocabulary(n=3, data=ground_truth_Corpus)
+save(unigram, file=paste0("../output/unigram.RData"))
+save(three_gram, file=paste0("../output/three_gram.RData"))
 
 # plots first 20 three_gram
 ggplot(three_gram[1:20,], aes(x=word, y=freq)) + 
@@ -309,59 +306,113 @@ ggplot(three_gram[1:20,], aes(x=word, y=freq)) +
   ylab("Frequency")
 ```
 
+## Select optimal parameters
+
+```{r parameters}
+CV <- list()
+CV[[1]] <- c(0.5,0.25,0.25,5)
+CV[[2]] <- c(1/3,1/3,1/3,10)
+CV[[3]] <- c(0.3,0.4,0.3,15)
+CV[[4]] <- c(0.2,0.4,0.4,20)
+CV[[5]] <- c(0.25,0.15,0.6,25)
+
+library(stringdist)
+delta.k <- rep(NA,5)
+alpha <- rep(NA,5)
+
+for(b in 1:5){
+  data_set <- data.frame("error_term" = character(0), 
+                         "gt_term" = character(0), 
+                         "candidate" = character(0),
+                         "feature1" = integer(0),
+                         "feature2" = integer(0))
+  
+  # parameter of feature1
+  delta <- CV[[b]][4]
+  # first s elements we keep in the candidate_set
+  s <- 5
+  source("../lib/string_similarity.R")
+  
+  ### create dataset
+  ## for each file  #length(tesseract_lines_all)
+  for (i in c(1, 3, 4, 7, 8)) {
+    ## create ground truth of corresponding file for candidate search
+    current_gt <- paste(gt_lines_all[[i]], collapse = " ")
+    current_gt_vec <- str_split(current_gt," ")[[1]] 
+    current_gt_vec <- unique(current_gt_vec)
+    
+    ## search error_term and corresponding ground truth for each file
+    error_position <- which(MatchDetect[[i]]$Detect == FALSE)
+    error_term <- as.character(MatchDetect[[i]]$Tesseract[error_position])
+    gt_term <- as.character(MatchDetect[[i]]$GroundTruth[error_position])
+    
+    ## for each error # length(error_term)
+    for (j in 1:20){
+      w_e <- error_term[j] # word_error
+      ## create a candidate set for each error
+      leven_distance <- sapply(current_gt_vec, stringdist, b = w_e, method = "lv") # calculate Levenshtein distance between error term and each candidate in current_gt_vec
+      chosen_candidate <- order(leven_distance)[1:s]
+      candidate_set <- current_gt_vec[chosen_candidate]
+      
+      ## feature scoring
+      
+      ### feature1: Levenshtein edit distance
+      # Levenshtein distance for the candidate
+      dist_candidate <- as.numeric(leven_distance[chosen_candidate])
+      score_led <- 1 - dist_candidate/(delta + 1)
+      
+      ### feature2: String similarity
+      score_ss <- string_similiarity(w_e, candidate_set,CV[[b]][1],CV[[b]][2],CV[[b]][3])
+      library("tibble")
+      data_set <- add_row(data_set, "error_term" = rep(w_e, length(candidate_set)), 
+                          "gt_term" = rep(gt_term[j], length(candidate_set)), 
+                          "candidate" = candidate_set,
+                          "feature1" = score_led,
+                          "feature2" = score_ss)
+      
+      data_set$y = as.numeric(as.character(data_set$gt_term) == as.character(data_set$candidate))
+    }
+  }
+}
+
+group3 <- list()
+for(j in 1:5){
+  group3[[j]] <- gt_vec_all[which(as.numeric(substr(file_name_vec,6,6))==j)]
+}
+
+data_set$group <- as.numeric(substr(file_name_vec,6,6))
+for(i in 1:100){
+  data_set$feature4[i] <- ifelse(data_set$candidate[i]%in%unlist(group3[[data_set$group[i]]]),1,0)
+}
+
+
+delta.k[b] <- mean(data_set$feature1[data_set$y==1])
+alpha[b] <- mean(data_set$feature2[data_set$y==1])
+
+# Plot 1
+comb.alpha <- 1:5
+data.2 <- as.data.frame(cbind(comb.alpha))
+library(ggplot2)
+ggplot(data = data.2, aes(x=comb.alpha,y=alpha, color = rainbow(5)))+geom_bar(stat="identity", fill = "white")+labs(x = "Alpha Combination", y = "Average Score")
+
+plot(comb.alpha,alpha, type = "b", col = 1:5, xlab = "Alpha Values", ylab = "Average Score", main = "Feature 2")
+legend("topright",c("(0.5,0.25,0.25)","(1/3,1/3,1/3)","(0.3,0.4,0.3)","(0.2,0.4,0.4)","(0.25,0.15,0.6)"), fill = 1:5, cex = 0.8)
+
+comb <- seq(5,25,5)
+data <- as.data.frame(cbind(delta.k,comb))
+
+ggplot(data = data, aes(x=comb,y=delta.k, color = rainbow(5)))+geom_bar(stat="identity", fill = "white")+labs(x = "Delta Value", y = "Average Score")+theme(legend.position = "none")
+plot(comb,delta.k, type = "b", col = 1:6, xlab = "Delta Values", ylab = "Average Score", main = "Feature 1")
+```
+
 ## build features, create dataset
 ```{r features}
 Sys.time()
-correct_pattern <- function(single_pattern){
-  return(gsub(x = single_pattern, pattern = "\\(", replacement = "\\\\\\(", ignore.case = TRUE))
-}
-
-
-initial_dataset <- function(){
-  data_set <- data.frame("error_term" = character(0), 
-                           "gt_term" = character(0), 
-                           "candidate" = character(0),
-                           "feature1" = integer(0),
-                           "feature2" = integer(0),
-                            "feature3" = integer(0),
-                            "feature4" = integer(0),
-                           "feature5" = integer(0),
-                           "feature6" = integer(0),
-                           "file_index" = integer(0),
-                           "error_index" = integer(0))
-  return(data_set)
-  
-}
-
-
-
-## function to calcualte candidate's exact frequency
-freq5 <- function(test, n_gram){
-  ifelse(sum(n_gram$word == test) == 0, 0, n_gram[n_gram$word == test, ]$freq)
-}
-
-## function to calcualte candidate's relaxd frequency
-freq6 <- function(test, ngram){
-  test <- correct_pattern(test)
-  ifelse(sum(grep(test, ngram$word)) == 0, 0, sum(ngram$freq[grep(test, ngram$word)]))
-}
-
-## function to calculate score based on context frequency
-context_score <- function(frequency){
-  if(max(frequency) == 0){
-    return(frequency)
-  }else{
-    return(frequency/max(frequency))
-  } 
-}
-
 
 # parameter of feature1
-delta <- 5
+delta <- 25
 # first s elements we keep in the candidate_set
 s <- 3
-
-source("../lib/string_similarity.R") # used in calculating feature2
 
 #### initial the filepath for storing the output
 filepath = "../output/"
@@ -402,7 +453,7 @@ for (i in 23) {
     score_led <- 1 - dist_candidate/(delta + 1)
     
     ### feature2: String similarity
-    score_ss <- string_similiarity(w_e, candidate_set)
+    score_ss <- string_similiarity(w_e, candidate_set, a.1 = 0.5, a.2 = 0.25, a.3 = 0.25)
     
     ### feature3: Language popularity
     frequency3 <- unlist(lapply(candidate_set, freq5, unigram))
@@ -480,38 +531,6 @@ save(data_set, file=paste(filepath, filename))
 ```
 
 ## Regression
-
-### Select optimal parameters
-
-```{r parameters}
-# tuneFunc = function(df, feature_col = 5){
-#   df1 = df[as.character(df$gt_term) == as.character(df$candidate),]
-#   return(mean(df1[, feature_col]))
-# }
-# 
-# ## feature 2
-# f2_scores = rep(NA, 5)
-# # combination 1 for feature2: a_1 = 0.5, a_2 = 0.25, a_3 = 0.25
-# # combination 2 for feature2: a_1 = 0.2, a_2 = 0.2, a_3 = 0.6
-# # combination 3 for feature2: a_1 = 0.4, a_2 = 0.4, a_3 = 0.2
-# # combination 4 for feature2: a_1 = 0.5, a_2 = 0.25, a_3 = 0.25
-# # combination 5 for feature2: a_1 = 0.3, a_2 = 0.5, a_3 = 0.2
-# for(i in 1:4){
-#   load(paste0("../output/data_set_f2_",i,".RData"))
-#   head(data_set)
-#   f2_scores[i] = tuneFunc(data_set, 5)
-# }
-# 
-# load(paste0("../output/data_set_f2_1.RData"))
-# ds1 = data_set
-# load(paste0("../output/data_set_f2_2.RData"))
-# ds2 = data_set
-# load(paste0("../output/data_set_f2_3.RData"))
-# ds3 = data_set
-# load(paste0("../output/data_set_f2_4.RData"))
-# ds4 = data_set
-```
-
 
 ### Use AdaBoost.R2 Model on top of decision trees with 0-1 loss function.
 
@@ -632,10 +651,6 @@ If the detection algorithm works well, the red line and blue line should be clos
 ```{r detection confusion matrix}
 load("../output/MatchDetectCharacter.RData")
 CompareMD = MatchDetectCharacter
-compareFunc = function(df){
-  df$Actual = df$Tesseract == df$GroundTruth
-  return(df)
-}
 
 CompareDetect = lapply(CompareMD, compareFunc) # each element is a dataframe with a new column of actual detection
 ## merge the detect and actual comparison of all 100 files into 1 matric
@@ -700,16 +715,6 @@ OCR_performance_table["word_wise_precision","PostProcessing"] <- mean(wp_correct
 ### Character Level ###
 #######################
 chars = c(letters,0,1,2,3,4,5,6,7,8,9)
-recallFunc = function(nums){
-    text = nums[1]
-    gt = nums[2]
-    return(min(text,gt)/max(text,gt))
-}
-precisionFunc = function(nums){
-    text = nums[1]
-    gt = nums[2]
-    return(min(text,gt)/text)
-}
 ##### Measurements on Tesseract Files #####
 lr_tes = rep(NA, n_file)
 lp_tes = rep(NA, n_file)

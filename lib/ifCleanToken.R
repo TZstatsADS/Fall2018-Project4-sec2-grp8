@@ -7,6 +7,7 @@
 ##############################
 
 detect3 = function(aString){
+  # this function are used for rule 3
   flg = 0
   chars = str_split(aString,'')
   chars = chars[[1]]
@@ -19,6 +20,7 @@ detect3 = function(aString){
 }
 
 detectVC = function(aString){
+  # this function are used for rule 7
   flg2 = 0
   chars = str_split(aString,'')
   chars = chars[[1]]
@@ -52,6 +54,8 @@ detectVC = function(aString){
 
 
 ifCleanToken <- function(cur_token){
+  # this function decide whether a token is garbage
+  # returns FALSE if it is a garbage
   now <- 1
   if_clean <- TRUE
   
